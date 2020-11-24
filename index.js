@@ -15,8 +15,8 @@ var superTalkMsgWindow = null;
 // 集成文档请参考 https://docs.starrtc.com/en/docs/web-7.html
 
 var aecRequestBaseURL = "https://www.starrtc.com/aec";				//开启AEC后，才生效，从此url获取各种列表信息
-var privateURL = "demo.starrtc.com";								//服务地址
-var webrtcIP = "123.103.93.74";										//webrtc ip，用于设置webrtc udp ip，用于setSrcServerInfo，setVdnServerInfo，setVoipServerInfo接口，不设置时与其server url一致
+var privateURL = "demo.starrtc.com";								//后端服务地址，可为ip，也可为域名
+var webrtcIP = "47.105.65.73";										//后端服务地址，必须为ip（目前只有chrome72以上支持设置成域名），webrtc ip，用于设置webrtc udp ip，用于setSrcServerInfo，setVdnServerInfo，setVoipServerInfo接口，不设置时与后端服务地址privateURL一致
 
 
 /* var LOG_LEVEL = {
@@ -559,7 +559,7 @@ function streamConfigChange(roomSDK, upId) {
 		}
 		streamConfig.push(conf);
 	}
-	//切换大小图，streamConfig为数组，1为小图，2为大图[1,2,1,2...]
+	//切换大小图，streamConfig为数组，1为小图，2为大图[1,2,1,2...]，会触发streamConfig回调
 	roomSDK.streamConfigApply(streamConfig);
 }
 
@@ -775,16 +775,19 @@ function videoMeetingCallBack(data, status, oper) {
 				//收到src加入房间回调
 				case "srcApplyUpload":
 					if (data.status == "success") {
+						//服务端录屏session id
+						console.log("recSessionId:" + data.recSessionId);
 						joinMeetingRoom(data.userData.roomInfo);
 					}
 					else {
 						alert("上传申请失败");
-						console.log("收到_webrtc_apply_failed");
 					}
+					console.log("收到srcApplyUpload:" + data.status);
 					break;
 				//收到添加新的上传者回调
 				case "addUploader":
 					var newVideoId = "webrtc_video_" + data.upUserId;
+					//data.streamInfo.streamObj中有两个video track（对应大小图），默认情况下是小图video track顺序在前，更换大小图显示时，需要先向服务端发切换消息，切换成功后，再掉换大小图video track 顺序，哪个的顺序在前，显示哪个
 					setStreamInfo(data.upId, newVideoId, data.streamInfo.streamObj);
 					videoMeetingAddNewVideo(newVideoId, data.streamInfo.streamObj, function (evt) {
 						streamConfigChange(thisRoom, data.upId);
@@ -793,7 +796,10 @@ function videoMeetingCallBack(data, status, oper) {
 				//收到移除上传者回调
 				case "removeUploader":
 					var streamInfo = getStreamInfo(data.upId);
-					resetStreamInfo(streamInfo);
+					//如果移除的用户是大图，则向服务端发送消息，切换回小图，使得下一位用户占据此位置时，发送的是小图，发送消息后会触发streamConfig回调，在回调中设置大小图流顺序
+					if (nowBigVideo == data.upId) {
+						streamConfigChange(thisRoom, data.upId);
+					}
 					var newVideoId = streamInfo.videoId;
 					removeNewVideo($("#videoMeetingVideoZone"), $("#" + newVideoId));
 					if (data.bigFlag) {
@@ -803,10 +809,10 @@ function videoMeetingCallBack(data, status, oper) {
 						}
 					}
 					break;
-				//收到删除房间回调
+				//收到删除房间回调（废弃）,不会触发，以下代码是正常的删除逻辑，请在回调外使用
 				case "delChannel":
 					if (data.status == "success") {
-						//开启AEC时，需要在AEC列表中也删除
+						//开启AEC时，只需要在AEC列表中删除，不需要走此回调，也不需要调用对应删除函数，放在这个位置仅为示例
 						if (StarRtc.Instance.starConfig.configUseAEC) {
 							$.get(aecRequestBaseURL + "/list/del.php?userId=" + StarRtc.Instance.starUser.userId + "&listType=" + CHATROOM_LIST_TYPE.CHATROOM_LIST_TYPE_MEETING.toString() + "&roomId=" + data.userData.roomInfo.id, function (data, status) {
 								if (status === "success") {
@@ -935,7 +941,6 @@ function stopVideoMeeting() {
 		}
 		else {
 			video[0].srcObject = null;
-			video[0].load();
 		}
 	});
 }
@@ -1004,7 +1009,7 @@ function videoMeetingCreateNewMeeting() {
 	}
 }
 
-//删除视频会议房间
+//删除视频会议房间（废弃）,删除房间请使用delroom接口
 function videoMeetingDelMeeting() {
 	if (currRoom != null) {
 		currRoom.deleteCurrRoom();
@@ -1191,6 +1196,8 @@ function videoLiveSrcCallBack(data, status, oper) {
 					//收到src加入房间回调
 					case "srcApplyUpload":
 						if (data.status == "success") {
+							//服务端录屏session id
+							console.log("recSessionId:" + data.recSessionId);
 							if (oper == "new") {
 								videoLiveMyCanvas = new MyCanvas("videoLiveMyCanvas", true, canvasDrawCallback);
 							}
@@ -1200,12 +1207,13 @@ function videoLiveSrcCallBack(data, status, oper) {
 						}
 						else {
 							alert("上传视频申请失败！");
-							console.log("收到_webrtc_apply_failed");
 						}
+						console.log("收到srcApplyUpload:" + data.status);
 						break;
 					//收到添加新的上传者回调
 					case "addUploader":
 						var newVideoId = "webrtc_video_" + data.upUserId;
+						//data.streamInfo.streamObj中有两个video track（对应大小图），默认情况下是小图video track顺序在前，更换大小图显示时，需要先向服务端发切换消息，切换成功后，再掉换大小图video track 顺序，哪个的顺序在前，显示哪个
 						setStreamInfo(data.upId, newVideoId, data.streamInfo.streamObj);
 						videoLiveAddNewVideo(newVideoId, data.streamInfo.streamObj, function (evt) {
 							streamConfigChange(thisRoom, data.upId);
@@ -1214,7 +1222,10 @@ function videoLiveSrcCallBack(data, status, oper) {
 					//收到移除上传者回调
 					case "removeUploader":
 						var streamInfo = getStreamInfo(data.upId);
-						resetStreamInfo(streamInfo);
+						//如果移除的用户是大图，则向服务端发送消息，切换回小图，使得下一位用户占据此位置时，发送的是小图，发送消息后会触发streamConfig回调，在回调中设置大小图流顺序
+						if (nowBigVideo == data.upId) {
+							streamConfigChange(thisRoom, data.upId);
+						}
 						var newVideoId = streamInfo.videoId;
 						removeNewVideo($("#videoLiveVideoZone"), $("#" + newVideoId));
 						if (data.bigFlag) {
@@ -1224,10 +1235,10 @@ function videoLiveSrcCallBack(data, status, oper) {
 							}
 						}
 						break;
-					//收到删除房间回调
+					//收到删除房间回调（废弃）,不会触发，以下代码是正常的删除逻辑，请在回调外使用
 					case "delChannel":
 						if (data.status == "success") {
-							//开启AEC时，需要在AEC列表中也删除
+							//开启AEC时，只需要在AEC列表中删除，不需要走此回调，也不需要调用对应删除函数，放在这个位置仅为示例
 							if (StarRtc.Instance.starConfig.configUseAEC) {
 								$.get(aecRequestBaseURL + "/list/del.php?userId=" + StarRtc.Instance.starUser.userId + "&listType=" + CHATROOM_LIST_TYPE.CHATROOM_LIST_TYPE_LIVE.toString() + "&roomId=" + data.userData.roomInfo.id, function (data, status) {
 									if (status === "success") {
@@ -1456,6 +1467,7 @@ function videoLiveVdnCallBack(data, status, oper) {
 				//收到添加新的上传者回调
 				case "addUploader":
 					var newVideoId = "webrtc_video_" + data.upUserId;
+					//data.streamInfo.streamObj中有两个video track（对应大小图），默认情况下是小图video track顺序在前，更换大小图显示时，需要先向服务端发切换消息，切换成功后，再掉换大小图video track 顺序，哪个的顺序在前，显示哪个
 					setStreamInfo(data.upId, newVideoId, data.streamInfo.streamObj);
 					videoLiveAddNewVideo(newVideoId, data.streamInfo.streamObj, function (evt) {
 						streamConfigChange(thisRoom, data.upId);
@@ -1464,7 +1476,10 @@ function videoLiveVdnCallBack(data, status, oper) {
 				//收到移除上传者回调
 				case "removeUploader":
 					var streamInfo = getStreamInfo(data.upId);
-					resetStreamInfo(streamInfo);
+					//如果移除的用户是大图，则向服务端发送消息，切换回小图，使得下一位用户占据此位置时，发送的是小图，发送消息后会触发streamConfig回调，在回调中设置大小图流顺序
+					if (nowBigVideo == data.upId) {
+						streamConfigChange(thisRoom, data.upId);
+					}
 					var newVideoId = streamInfo.videoId;
 					removeNewVideo($("#videoMeetingVideoZone"), $("#" + newVideoId));
 					if (data.bigFlag) {
@@ -1584,7 +1599,6 @@ function stopVideoLive() {
 		}
 		else {
 			video[0].srcObject = null;
-			video[0].load();
 		}
 	});
 }
@@ -1916,18 +1930,26 @@ function voipCallBack(data, status, oper) {
 				//收到voip 呼叫回调
 				case "voipCalling":
 					if (data.status == "success") {
-
+						//服务端录屏session id
+						console.log("recSessionId:" + data.recSessionId);
 					}
 					break;
 				//收到voip 应答回调
 				case "voipResponseing":
 					if (data.status == "success") {
+						//服务端录屏session id
+						console.log("recSessionId:" + data.recSessionId);
 						$('#targetUserId').val(data.userData.roomInfo.targetId);
 					}
 					break;
 				//收到voip 通话成功后，获取到对方视频流
 				case "voipStreamReady":
-					voipSetStream($("#voipBigVideo")[0], data.streamObj);
+					if (data.userData.roomInfo.audioOnly) {
+						voipSetStream($("#voipBigAudio")[0], data.streamObj);
+					}
+					else {
+						voipSetStream($("#voipBigVideo")[0], data.streamObj);
+					}
 					break;
 			}
 			break;
@@ -2021,9 +2043,7 @@ function stopVoip() {
 	$("#callerId").html("");
 	$('#targetUserId').val("");
 	$("#voipBigVideo")[0].srcObject = null;
-	$("#voipBigVideo")[0].load();
 	$("#voipSmallVideo")[0].srcObject = null;
-	$("#voipSmallVideo")[0].load();
 }
 
 //voip 发送消息
@@ -2178,10 +2198,10 @@ function superTalkCallBack(data, status, oper) {
 						});
 					}
 					break;
-				//收到删除房间回调
+				//收到删除房间回调（废弃）,不会触发，以下代码是正常的删除逻辑，请在回调外使用
 				case "delChannel":
 					if (data.status == "success") {
-						//开启AEC时，需要在AEC列表中也删除
+						//开启AEC时，只需要在AEC列表中删除，不需要走此回调，也不需要调用对应删除函数，放在这个位置仅为示例
 						if (StarRtc.Instance.starConfig.configUseAEC) {
 							$.get(aecRequestBaseURL + "/list/del.php?userId=" + StarRtc.Instance.starUser.userId + "&listType=" + CHATROOM_LIST_TYPE.CHATROOM_LIST_TYPE_SUPER_ROOM.toString() + "&roomId=" + data.userData.roomInfo.id, function (data, status) {
 								if (status === "success") {
@@ -2223,6 +2243,8 @@ function superTalkCallBack(data, status, oper) {
 				//收到src加入房间回调（即开始说话回调）
 				case "srcApplyUpload":
 					if (data.status == "success") {
+						//服务端录屏session id
+						console.log("recSessionId:" + data.recSessionId);
 						alert("开启说话成功");
 						$("#superTalkEndTalkButton").show();
 						$("#superTalkStartTalkButton").hide();
@@ -2233,7 +2255,7 @@ function superTalkCallBack(data, status, oper) {
 						$("#superTalkStartTalkButton").show();
 					}
 					superTalkStartTalkConnectDlg.dialog("close");
-					console.log("收到srcApplyUpload");
+					console.log("收到srcApplyUpload:" + data.status);
 					break;
 				//收到vdn加入房间回调（即加入房间回调）
 				case "vdnApplyDownload":
@@ -2249,15 +2271,14 @@ function superTalkCallBack(data, status, oper) {
 					break;
 				//收到添加新的上传者回调
 				case "addUploader":
-					setStreamInfo(data.upId, newVideoId, data.streamInfo.streamObj);
-					superTalkSetUploader(true, data.upId, data.upUserId, data.streamInfo.streamObj);
+					setStreamInfo(data.upId, "", data.streamInfo.streamObj);
+					superTalkSetUploader(true, data.upId, data.upUserId, data.streamInfo.streamObj, data.upUserId == StarRtc.Instance.starUser.starUid);
 					break;
 				//收到移除上传者回调
 				case "removeUploader":
 					var streamInfo = getStreamInfo(data.upId);
 					resetStreamInfo(streamInfo);
-					var newVideoId = streamInfo.videoId;
-					superTalkSetUploader(false, data.upId, data.upUserId, streamInfo.streamObj);
+					superTalkSetUploader(false, data.upId, data.upUserId, streamInfo.streamObj, data.upUserId == StarRtc.Instance.starUser.starUid);
 					break;
 				case "serverErr":
 					alert("服务器错误：" + data.msg);
@@ -2327,7 +2348,7 @@ function joinSuperTalkRoom(roomInfo) {
 }
 
 //设置远程流界面显示
-function superTalkSetUploader(flag, upId, userId, stream) {
+function superTalkSetUploader(flag, upId, userId, stream, isSelf) {
 	var container = $("#superTalkUser" + upId);
 	var userName = $("#superTalkUserName" + upId);
 	var audio = $("#superTalkAudioUser" + upId);
@@ -2340,8 +2361,9 @@ function superTalkSetUploader(flag, upId, userId, stream) {
 			userName.html(tmp[0]);
 		}
 		container.show();
-
-		audio[0].srcObject = stream;
+		if (!isSelf) {
+			audio[0].srcObject = stream;
+		}
 	}
 	else {
 		container.hide();
@@ -2584,7 +2606,7 @@ SuperVideoSDK = function (flag, roomInfo, dom, callback) {
 							$(domEle).show();
 							nameEle.html(roomInfo.name + "_" + data.upUserId);
 							videoEle[0].srcObject = data.streamInfo.streamObj;
-							videoEle[0].load();
+							videoEle[0].play();
 						}
 						break;
 					//收到移除上传者回调
@@ -2594,7 +2616,6 @@ SuperVideoSDK = function (flag, roomInfo, dom, callback) {
 							$(domEle).hide();
 							nameEle.html("");
 							videoEle[0].srcObject = null;
-							videoEle[0].load();
 						}
 						break;
 					case "serverErr":
